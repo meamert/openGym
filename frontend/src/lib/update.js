@@ -49,6 +49,9 @@ export async function checkForUpdate() {
   return cached
 }
 async function fetchLatest() {
+  // Own build (see VITE_PROXY_KEY in api.js): signed with its own key, so the official APK cannot
+  // install over it. Never offer one.
+  if (import.meta.env.VITE_PROXY_KEY) return { hasUpdate: false, latestVersion: __APP_VERSION__, apkUrl: null, hashUrl: null }
   const res = await fetch(RELEASES_URL + '?per_page=1')
   if (!res.ok) throw new Error(`GitLab API ${res.status}`)
   const releases = await res.json()

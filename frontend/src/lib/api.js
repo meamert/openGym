@@ -24,6 +24,12 @@ let remoteBase = ''
 let remoteToken = null
 export function setRemoteAuth(base, token) { remoteBase = base || ''; remoteToken = token || null }
 
+// Own build only: a static header the reverse proxy matches to let a paired phone's /api calls
+// past its auth (Authelia). Baked in at build time (VITE_PROXY_KEY) and only ever sent to the
+// paired server; empty in every other build, which then sends exactly what upstream sends.
+const PROXY_KEY = import.meta.env.VITE_PROXY_KEY || ''
+const PROXY_HEADERS = PROXY_KEY ? { 'X-OpenGym-Key': PROXY_KEY } : {}
+
 export { appBase }
 
 // How long one request may take before it counts as no answer at all. A black-holed connection
@@ -47,6 +53,7 @@ export async function api(path, opts) {
   if (MOBILE && !remoteBase) throw failure(t('This phone is not connected to a server.'), 'not-paired', 0)
   const headers = Object.assign({ 'Content-Type': 'application/json' }, init.headers)
   if (remoteToken) headers.Authorization = 'Bearer ' + remoteToken
+  if (remoteBase) Object.assign(headers, PROXY_HEADERS)
   // A paired phone has an absolute base of its own; everyone else is relative to where the app
   // is served, so a subpath deployment reaches its own API instead of the proxy's root.
   const url = remoteBase ? remoteBase + path : appBase().replace(/\/$/, '') + path
@@ -105,7 +112,7 @@ export function beacon(path, body) {
    answer allows it for GET and PUT); both refuse to run on a phone without a server, like api(). */
 
 const mediaUrl = path => (remoteBase ? remoteBase + path : appBase().replace(/\/$/, '') + path)
-const mediaHeaders = () => (remoteToken ? { Authorization: 'Bearer ' + remoteToken } : {})
+const mediaHeaders = () => ({ ...(remoteToken ? { Authorization: 'Bearer ' + remoteToken } : {}), ...(remoteBase ? PROXY_HEADERS : {}) })
 const notPaired = () => failure(t('This phone is not connected to a server.'), 'not-paired', 0)
 const timedOut = () => failure(t('The server did not answer in time.'), 'timeout')
 
@@ -214,7 +221,7 @@ export function apiUpload(path, blob, mime, { onProgress, idleMs = 60000, XHR = 
 // so it talks straight to the server the user typed in, no Authorization header.
 export async function pairRedeem(serverBase, code) {
   const data = await request(serverBase + '/api/pair/redeem', {
-    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ code })
+    method: 'POST', headers: { 'Content-Type': 'application/json', ...PROXY_HEADERS }, body: JSON.stringify({ code })
   }, TIMEOUT_GET_MS)
   // Anything that is not a pairing would be saved as one — and the phone would then send every
   // change to a server that never gave it a token.
